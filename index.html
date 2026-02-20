@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Earth Explorer</title>
+  <link rel="icon" href="data:," />
+  <style>
+    :root {
+      --bg: #040712;
+      --panel: rgba(12, 18, 38, 0.72);
+      --border: rgba(116, 163, 255, 0.38);
+      --text: #e6efff;
+      --muted: #a9b7d9;
+      --accent: #58a6ff;
+      --accent-2: #70ffe4;
+      --danger: #ff7390;
+      --ok: #84ffc7;
+      --shadow: 0 14px 32px rgba(0, 0, 0, 0.34);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      color: var(--text);
+      background: radial-gradient(circle at 16% 8%, #16203d, var(--bg) 42%);
+      font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+    }
+
+    #app:active { cursor: grabbing; }
+
+    .glass {
+      position: fixed;
+      z-index: 12;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+
+    .topbar {
+      top: 14px;
+      left: 14px;
+      width: min(620px, calc(100vw - 28px));
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .search-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      border: 1px solid rgba(139, 182, 255, 0.42);
+      border-radius: 10px;
+      outline: none;
+      color: var(--text);
+      background: rgba(7, 14, 34, 0.78);
+      padding: 10px 12px;
+      font-size: 13px;
+    }
+
+    input[type="text"]:focus { border-color: rgba(112, 255, 228, 0.72); }
+
+    .buttons {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    button {
+      border-radius: 10px;
+      border: 1px solid rgba(145, 186, 255, 0.44);
+      color: var(--text);
+      font-size: 12px;
+      padding: 9px 10px;
+      cursor: pointer;
+      background: linear-gradient(180deg, rgba(23, 56, 117, 0.92), rgba(14, 31, 68, 0.92));
+      transition: transform .14s ease, filter .14s ease;
+    }
+
+    button:hover { transform: translateY(-1px); filter: brightness(1.06); }
+    button.active { border-color: rgba(112, 255, 228, 0.9); }
+    button.danger {
+      border-color: rgba(255, 129, 156, 0.56);
+      background: linear-gradient(180deg, rgba(126, 31, 52, 0.92), rgba(82, 22, 35, 0.92));
+    }
+
+    .coords {
+      top: 14px;
+      right: 14px;
+      width: min(300px, calc(100vw - 28px));
+      padding: 10px 12px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .coords strong { color: var(--text); }
+    .ok { color: var(--ok); }
+
+    .marker-panel {
+      right: 14px;
+      bottom: 14px;
+      width: min(360px, calc(100vw - 28px));
+      max-height: min(42vh, 360px);
+      padding: 10px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 8px;
+    }
+
+    .marker-panel h2 {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: #d7e9ff;
+    }
+
+    .marker-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      overflow: auto;
+      display: grid;
+      gap: 6px;
+    }
+
+    .marker-list li {
+      border: 1px solid rgba(124, 163, 237, 0.34);
+      border-radius: 10px;
+      background: rgba(9, 20, 46, 0.64);
+      font-size: 12px;
+      padding: 7px 8px;
+      color: #e0ecff;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .marker-list span { color: var(--muted); font-size: 11px; }
+
+    .status {
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 18px;
+      padding: 0 2px;
+    }
+
+    .spinner {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid rgba(88, 166, 255, 0.22);
+      border-top-color: var(--accent-2);
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 6px;
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 860px) {
+      .coords { left: 14px; right: auto; top: auto; bottom: 14px; }
+      .marker-panel { top: 14px; bottom: auto; width: min(320px, calc(100vw - 28px)); }
+      .buttons { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app" aria-label="3D Earth viewport"></div>
+
+  <section class="glass topbar" aria-label="Search and controls">
+    <div class="search-row">
+      <input id="searchInput" type="text" value="Tokyo, Japan" placeholder="Search city or country..." />
+      <button id="searchBtn">Search</button>
+    </div>
+    <div class="buttons">
+      <button id="resetBtn">Reset View</button>
+      <button id="rotateBtn" class="active">Auto Rotate: ON</button>
+      <button id="atmoBtn" class="active">Atmosphere: ON</button>
+      <button id="starsBtn" class="active">Stars: ON</button>
+      <button id="clearBtn" class="danger">Clear Markers</button>
+    </div>
+    <div id="status" class="status">Ready.</div>
+  </section>
+
+  <section class="glass coords" aria-live="polite">
+    <div><strong>Hover:</strong> <span id="hoverText">Move over globe…</span></div>
+    <div><strong>Last click:</strong> <span id="clickText" class="ok">None</span></div>
+    <div><strong>Zoom:</strong> <span id="zoomText">--</span></div>
+  </section>
+
+  <section class="glass marker-panel" aria-label="Markers">
+    <h2>Marker List</h2>
+    <ol id="markerList" class="marker-list"></ol>
+  </section>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    (() => {
+      'use strict';
+
+      // Scene setup
+      const app = document.getElementById('app');
+      const statusEl = document.getElementById('status');
+      const hoverTextEl = document.getElementById('hoverText');
+      const clickTextEl = document.getElementById('clickText');
+      const zoomTextEl = document.getElementById('zoomText');
+      const markerListEl = document.getElementById('markerList');
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x04060d);
+
+      const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 2000);
+      camera.position.set(0, 0.9, 4.2);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      app.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.06;
+      controls.enablePan = false;
+      controls.minDistance = 1.78;
+      controls.maxDistance = 12;
+
+      const raycaster = new THREE.Raycaster();
+      const mouse = new THREE.Vector2();
+
+      const state = {
+        autoRotate: true,
+        atmosphere: true,
+        stars: true,
+        markers: [],
+        searchBusy: false,
+        easer: {
+          active: false,
+          t: 0,
+          duration: 1.6,
+          fromPos: new THREE.Vector3(),
+          toPos: new THREE.Vector3(),
+          fromTarget: new THREE.Vector3(),
+          toTarget: new THREE.Vector3()
+        }
+      };
+
+      function setStatus(text, loading = false) {
+        statusEl.innerHTML = loading ? `<span class="spinner"></span>${text}` : text;
+      }
+
+      // Globe creation
+      const EARTH_RADIUS = 1.45;
+      const globeRoot = new THREE.Group();
+      scene.add(globeRoot);
+
+      const loader = new THREE.TextureLoader();
+      loader.crossOrigin = 'anonymous';
+
+      function fallbackTexture(hex) {
+        const c = document.createElement('canvas');
+        c.width = 2; c.height = 2;
+        const cx = c.getContext('2d');
+        cx.fillStyle = hex;
+        cx.fillRect(0, 0, 2, 2);
+        return new THREE.CanvasTexture(c);
+      }
+
+      function loadSafe(url, fallbackHex, isColor = true) {
+        const fb = fallbackTexture(fallbackHex);
+        let tex = fb;
+        try {
+          tex = loader.load(url, t => {
+            if (isColor) t.colorSpace = THREE.SRGBColorSpace;
+          }, undefined, () => {
+            tex = fb;
+          });
+        } catch {
+          tex = fb;
+        }
+        return tex;
+      }
+
+      const earthMap = loadSafe('https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg', '#2d5d9d', true);
+      const bumpMap = loadSafe('https://threejs.org/examples/textures/planets/earth_bump_2048.jpg', '#818181', false);
+      const specMap = loadSafe('https://threejs.org/examples/textures/planets/earth_specular_2048.jpg', '#222222', false);
+      const cloudMap = loadSafe('https://threejs.org/examples/textures/planets/earth_clouds_1024.png', '#ffffff', true);
+      const starsMap = loadSafe('https://threejs.org/examples/textures/planets/starfield.jpg', '#000000', true);
+
+      const earth = new THREE.Mesh(
+        new THREE.SphereGeometry(EARTH_RADIUS, 128, 128),
+        new THREE.MeshPhongMaterial({
+          map: earthMap,
+          bumpMap,
+          bumpScale: 0.035,
+          specularMap: specMap,
+          specular: new THREE.Color(0x394f66),
+          shininess: 24
+        })
+      );
+      globeRoot.add(earth);
+
+      const clouds = new THREE.Mesh(
+        new THREE.SphereGeometry(EARTH_RADIUS * 1.008, 120, 120),
+        new THREE.MeshLambertMaterial({ map: cloudMap, transparent: true, opacity: 0.6, depthWrite: false })
+      );
+      globeRoot.add(clouds);
+
+      const atmosphere = new THREE.Mesh(
+        new THREE.SphereGeometry(EARTH_RADIUS * 1.06, 96, 96),
+        new THREE.MeshBasicMaterial({ color: 0x64b8ff, transparent: true, opacity: 0.13, side: THREE.BackSide })
+      );
+      globeRoot.add(atmosphere);
+
+      const hoverGlow = new THREE.Mesh(
+        new THREE.SphereGeometry(EARTH_RADIUS * 1.014, 72, 72),
+        new THREE.MeshBasicMaterial({ color: 0x70f5ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })
+      );
+      globeRoot.add(hoverGlow);
+
+      const starfield = new THREE.Mesh(
+        new THREE.SphereGeometry(900, 48, 48),
+        new THREE.MeshBasicMaterial({ map: starsMap, side: THREE.BackSide })
+      );
+      scene.add(starfield);
+
+      const markerGroup = new THREE.Group();
+      scene.add(markerGroup);
+
+      // Lighting
+      scene.add(new THREE.AmbientLight(0x4c6284, 0.34));
+      const sun = new THREE.DirectionalLight(0xffffff, 1.45);
+      sun.position.set(5, 3, 5);
+      scene.add(sun);
+      const rim = new THREE.DirectionalLight(0x6ca9ff, 0.3);
+      rim.position.set(-6, -2, -4);
+      scene.add(rim);
+
+      // Controls
+      function setButton(btn, on, onText, offText) {
+        btn.classList.toggle('active', on);
+        btn.textContent = on ? onText : offText;
+      }
+
+      function easeTo(pos, target, duration = 1.4) {
+        const e = state.easer;
+        e.active = true;
+        e.t = 0;
+        e.duration = duration;
+        e.fromPos.copy(camera.position);
+        e.toPos.copy(pos);
+        e.fromTarget.copy(controls.target);
+        e.toTarget.copy(target);
+      }
+
+      document.getElementById('resetBtn').addEventListener('click', () => {
+        easeTo(new THREE.Vector3(0, 0.9, 4.2), new THREE.Vector3(0, 0, 0), 1.1);
+      });
+
+      const rotateBtn = document.getElementById('rotateBtn');
+      rotateBtn.addEventListener('click', () => {
+        state.autoRotate = !state.autoRotate;
+        setButton(rotateBtn, state.autoRotate, 'Auto Rotate: ON', 'Auto Rotate: OFF');
+      });
+
+      const atmoBtn = document.getElementById('atmoBtn');
+      atmoBtn.addEventListener('click', () => {
+        state.atmosphere = !state.atmosphere;
+        atmosphere.visible = state.atmosphere;
+        setButton(atmoBtn, state.atmosphere, 'Atmosphere: ON', 'Atmosphere: OFF');
+      });
+
+      const starsBtn = document.getElementById('starsBtn');
+      starsBtn.addEventListener('click', () => {
+        state.stars = !state.stars;
+        starfield.visible = state.stars;
+        setButton(starsBtn, state.stars, 'Stars: ON', 'Stars: OFF');
+      });
+
+      document.getElementById('clearBtn').addEventListener('click', () => {
+        markerGroup.clear();
+        state.markers.length = 0;
+        markerListEl.innerHTML = '';
+      });
+
+      // Search system
+      const searchInput = document.getElementById('searchInput');
+      const searchBtn = document.getElementById('searchBtn');
+
+      function latLonToVec(lat, lon, radius = EARTH_RADIUS) {
+        const phi = (90 - lat) * (Math.PI / 180);
+        const theta = (lon + 180) * (Math.PI / 180);
+        return new THREE.Vector3(
+          -(radius * Math.sin(phi) * Math.cos(theta)),
+          radius * Math.cos(phi),
+          radius * Math.sin(phi) * Math.sin(theta)
+        );
+      }
+
+      async function searchPlace() {
+        const query = searchInput.value.trim();
+        if (!query || state.searchBusy) return;
+
+        state.searchBusy = true;
+        searchBtn.disabled = true;
+        setStatus(`Searching "${query}"...`, true);
+
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+          const res = await fetch(url, { headers: { Accept: 'application/json' } });
+          if (!res.ok) throw new Error(`Service error (${res.status})`);
+
+          const data = await res.json();
+          if (!Array.isArray(data) || data.length === 0) throw new Error('No results');
+
+          const lat = Number(data[0].lat);
+          const lon = Number(data[0].lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error('Invalid coordinates');
+
+          const target = latLonToVec(lat, lon, EARTH_RADIUS * 0.98);
+          const eye = target.clone().normalize().multiplyScalar(EARTH_RADIUS * 2.6).add(new THREE.Vector3(0.42, 0.2, 0.42));
+          easeTo(eye, target, 1.9);
+
+          setStatus(`Found: ${data[0].display_name}`);
+        } catch (err) {
+          setStatus(`Search failed: ${err.message}.`);
+        } finally {
+          state.searchBusy = false;
+          searchBtn.disabled = false;
+        }
+      }
+
+      searchBtn.addEventListener('click', searchPlace);
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') searchPlace();
+      });
+
+      // Interaction
+      function toLatLon(point) {
+        const n = point.clone().normalize();
+        const lat = THREE.MathUtils.radToDeg(Math.asin(n.y));
+        const lon = THREE.MathUtils.radToDeg(Math.atan2(n.z, -n.x));
+        return { lat, lon };
+      }
+
+      function fmtLatLon(lat, lon) {
+        const latDir = lat >= 0 ? 'N' : 'S';
+        const lonDir = lon >= 0 ? 'E' : 'W';
+        return `${Math.abs(lat).toFixed(4)}° ${latDir}, ${Math.abs(lon).toFixed(4)}° ${lonDir}`;
+      }
+
+      function updateMarkerList() {
+        markerListEl.innerHTML = '';
+        state.markers.forEach((m, i) => {
+          const li = document.createElement('li');
+          li.innerHTML = `<strong>#${i + 1}</strong><span>${fmtLatLon(m.lat, m.lon)}</span>`;
+          markerListEl.appendChild(li);
+        });
+      }
+
+      function createMarker(hitPoint) {
+        const up = hitPoint.clone().normalize();
+        const base = up.clone().multiplyScalar(EARTH_RADIUS * 1.002);
+
+        const group = new THREE.Group();
+
+        const stem = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.005, 0.006, 0.12, 8),
+          new THREE.MeshStandardMaterial({ color: 0x76e8ff, emissive: 0x1a90aa, emissiveIntensity: 0.9 })
+        );
+        stem.position.copy(base.clone().add(up.clone().multiplyScalar(0.06)));
+
+        const cap = new THREE.Mesh(
+          new THREE.SphereGeometry(0.023, 14, 14),
+          new THREE.MeshStandardMaterial({ color: 0x86fff1, emissive: 0x39ffe2, emissiveIntensity: 1.4 })
+        );
+        cap.position.copy(base.clone().add(up.clone().multiplyScalar(0.126)));
+
+        const halo = new THREE.Mesh(
+          new THREE.SphereGeometry(0.05, 16, 16),
+          new THREE.MeshBasicMaterial({ color: 0x71fff8, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false })
+        );
+        halo.position.copy(cap.position);
+
+        group.add(stem, cap, halo);
+        return group;
+      }
+
+      function intersectEarth(clientX, clientY) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        if (!rect.width || !rect.height) return null;
+
+        mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        const hits = raycaster.intersectObject(earth, true);
+        return hits.length ? hits[0] : null;
+      }
+
+      renderer.domElement.addEventListener('pointermove', (e) => {
+        const hit = intersectEarth(e.clientX, e.clientY);
+        if (!hit) {
+          hoverTextEl.textContent = 'Move over globe…';
+          hoverGlow.material.opacity = THREE.MathUtils.lerp(hoverGlow.material.opacity, 0, 0.2);
+          return;
+        }
+
+        const ll = toLatLon(hit.point);
+        hoverTextEl.textContent = fmtLatLon(ll.lat, ll.lon);
+        hoverGlow.material.opacity = THREE.MathUtils.lerp(hoverGlow.material.opacity, 0.16, 0.2);
+      });
+
+      renderer.domElement.addEventListener('pointerleave', () => {
+        hoverTextEl.textContent = 'Move over globe…';
+      });
+
+      renderer.domElement.addEventListener('click', (e) => {
+        const hit = intersectEarth(e.clientX, e.clientY);
+        if (!hit) return;
+
+        markerGroup.add(createMarker(hit.point));
+        const ll = toLatLon(hit.point);
+        clickTextEl.textContent = fmtLatLon(ll.lat, ll.lon);
+        state.markers.push(ll);
+        updateMarkerList();
+      });
+
+      // UI
+      setButton(rotateBtn, true, 'Auto Rotate: ON', 'Auto Rotate: OFF');
+      setButton(atmoBtn, true, 'Atmosphere: ON', 'Atmosphere: OFF');
+      setButton(starsBtn, true, 'Stars: ON', 'Stars: OFF');
+
+      function updateReadouts() {
+        zoomTextEl.textContent = camera.position.distanceTo(controls.target).toFixed(2);
+      }
+
+      // Animation loop
+      const clock = new THREE.Clock();
+
+      function smoothstep(t) {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      }
+
+      function animate() {
+        const dt = Math.min(0.033, clock.getDelta());
+
+        if (state.autoRotate) globeRoot.rotation.y += dt * 0.08;
+        clouds.rotation.y += dt * 0.1;
+
+        const e = state.easer;
+        if (e.active) {
+          e.t += dt / e.duration;
+          const t = Math.min(1, e.t);
+          const k = smoothstep(t);
+          camera.position.lerpVectors(e.fromPos, e.toPos, k);
+          controls.target.lerpVectors(e.fromTarget, e.toTarget, k);
+          if (t >= 1) e.active = false;
+        }
+
+        controls.update();
+        updateReadouts();
+
+        renderer.render(scene, camera);
+        requestAnimationFrame(animate);
+      }
+
+      animate();
+
+      // Resize handling
+      addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+    })();
+  </script>
+</body>
+</html>
